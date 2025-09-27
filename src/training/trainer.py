@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
-from torch.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
 from src.training.losses import LossOutput, compute_losses
@@ -40,7 +40,8 @@ class Trainer:
         self.scheduler = scheduler
         self.device = torch.device(config.device if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        self.scaler = GradScaler(enabled=config.use_amp and self.device.type == "cuda", device_type=self.device.type)
+        self.use_amp = bool(config.use_amp and self.device.type == "cuda")
+        self.scaler = GradScaler(enabled=self.use_amp)
 
     def _move_batch(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         return {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
@@ -50,8 +51,7 @@ class Trainer:
         labels = batch["labels"].float()
         mask = batch["label_mask"].float()
 
-        use_amp = self.config.use_amp and self.device.type == "cuda"
-        with autocast(device_type=self.device.type, enabled=use_amp):
+        with autocast(enabled=self.use_amp):
             outputs = self.model(features)
             losses = compute_losses(
                 preds=outputs["preds"],
@@ -76,12 +76,20 @@ class Trainer:
                 batch = self._move_batch(batch)
                 self.optimizer.zero_grad(set_to_none=True)
                 losses, outputs = self._forward_loss(batch)
-                self.scaler.scale(losses.total).backward()
-                if self.config.grad_clip:
-                    self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+
+                if self.use_amp:
+                    self.scaler.scale(losses.total).backward()
+                    if self.config.grad_clip:
+                        self.scaler.unscale_(self.optimizer)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    losses.total.backward()
+                    if self.config.grad_clip:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+                    self.optimizer.step()
+
                 if self.scheduler is not None:
                     self.scheduler.step()
 
