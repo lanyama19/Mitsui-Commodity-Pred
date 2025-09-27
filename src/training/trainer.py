@@ -1,3 +1,4 @@
+"""Training loop utilities with AMP support and progress reporting."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,9 +12,10 @@ from torch.utils.data import DataLoader
 from src.training.losses import LossOutput, compute_losses
 from src.training.metrics import spearman_correlation
 
-
-@dataclass
+@dataclass
 class TrainerConfig:
+    """Configuration for the generic trainer."""
+
     epochs: int = 20
     lr: float = 1e-4
     weight_decay: float = 1e-4
@@ -27,6 +29,8 @@ class TrainerConfig:
 
 
 class Trainer:
+    """Handles model training, validation, and metric logging."""
+
     def __init__(
         self,
         model: nn.Module,
@@ -44,9 +48,13 @@ class Trainer:
         self.scaler = GradScaler(enabled=self.use_amp)
 
     def _move_batch(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Transfer tensors in the batch to the trainer device."""
+
         return {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
     def _forward_loss(self, batch: Dict[str, torch.Tensor]) -> tuple[LossOutput, Dict[str, torch.Tensor]]:
+        """Run forward pass and compute losses inside AMP context if enabled."""
+
         features = batch["features"].float()
         labels = batch["labels"].float()
         mask = batch["label_mask"].float()
@@ -67,8 +75,11 @@ class Trainer:
         return losses, outputs
 
     def fit(self, train_loader: DataLoader, val_loader: Optional[DataLoader] = None) -> Dict[str, list]:
+        """Train the model for configured epochs and return training history."""
+
         history: Dict[str, list] = {"train_loss": [], "val_loss": [], "train_ic": [], "val_ic": []}
         for epoch in range(1, self.config.epochs + 1):
+            print(f"[Trainer] Epoch {epoch}/{self.config.epochs} -- training phase")
             self.model.train()
             train_losses = []
             train_ics = []
@@ -97,10 +108,14 @@ class Trainer:
                 ic = spearman_correlation(outputs["scores"].detach(), batch["labels"], batch["label_mask"])
                 train_ics.append(ic.detach().cpu())
 
-            history["train_loss"].append(torch.stack(train_losses).mean().item())
-            history["train_ic"].append(torch.stack(train_ics).mean().item() if train_ics else 0.0)
+            epoch_train_loss = torch.stack(train_losses).mean().item()
+            epoch_train_ic = torch.stack(train_ics).mean().item() if train_ics else 0.0
+            history["train_loss"].append(epoch_train_loss)
+            history["train_ic"].append(epoch_train_ic)
+            print(f"[Trainer] Epoch {epoch} train_loss={epoch_train_loss:.4f} train_ic={epoch_train_ic:.4f}")
 
             if val_loader is not None:
+                print(f"[Trainer] Epoch {epoch}/{self.config.epochs} -- validation phase")
                 self.model.eval()
                 val_losses = []
                 val_ics = []
@@ -111,10 +126,14 @@ class Trainer:
                         val_losses.append(losses.total.detach().cpu())
                         ic = spearman_correlation(outputs["scores"].detach(), batch["labels"], batch["label_mask"])
                         val_ics.append(ic.detach().cpu())
-                history["val_loss"].append(torch.stack(val_losses).mean().item() if val_losses else 0.0)
-                history["val_ic"].append(torch.stack(val_ics).mean().item() if val_ics else 0.0)
+                epoch_val_loss = torch.stack(val_losses).mean().item() if val_losses else 0.0
+                epoch_val_ic = torch.stack(val_ics).mean().item() if val_ics else 0.0
+                history["val_loss"].append(epoch_val_loss)
+                history["val_ic"].append(epoch_val_ic)
+                print(f"[Trainer] Epoch {epoch} val_loss={epoch_val_loss:.4f} val_ic={epoch_val_ic:.4f}")
             else:
                 history["val_loss"].append(0.0)
                 history["val_ic"].append(0.0)
 
+        print("[Trainer] Training finished")
         return history

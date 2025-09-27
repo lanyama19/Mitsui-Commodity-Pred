@@ -1,7 +1,7 @@
+"""Lightweight Transformer layer primitives (feature gate, Time2Vec, attention blocks)."""
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Optional
 
 import torch
@@ -10,17 +10,23 @@ import torch.nn.functional as F
 
 
 class FeatureGate(nn.Module):
+    """Learnable feature mask that scales each input channel between 0 and 1."""
+
     def __init__(self, feature_dim: int, init_value: float = 0.5) -> None:
         super().__init__()
         init = torch.full((feature_dim,), float(init_value)).float()
         self.logits = nn.Parameter(torch.logit(init.clamp(1e-4, 1 - 1e-4)))
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply gating to input tensor and return gated features plus raw gate values."""
+
         gate = torch.sigmoid(self.logits)
         return x * gate, gate
 
 
 class Time2Vec(nn.Module):
+    """Time2Vec embedding that augments inputs with periodic components."""
+
     def __init__(self, input_dim: int = 1, k: int = 4) -> None:
         super().__init__()
         self.k = k
@@ -28,13 +34,17 @@ class Time2Vec(nn.Module):
         self.freq = nn.Linear(input_dim, k)
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
-        t = t.unsqueeze(-1)  # [..., 1]
+        """Convert scalar timesteps into linear + sinusoidal embeddings."""
+
+        t = t.unsqueeze(-1)
         linear_term = self.linear(t)
         periodic = torch.sin(self.freq(t))
         return torch.cat([linear_term, periodic], dim=-1)
 
 
 class FeedForward(nn.Module):
+    """Two-layer MLP used inside Transformer blocks."""
+
     def __init__(self, d_model: int, d_ff: int, dropout: float = 0.1) -> None:
         super().__init__()
         self.net = nn.Sequential(
@@ -46,10 +56,14 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Return feed-forward transformed tensor."""
+
         return self.net(x)
 
 
 class MultiHeadSelfAttention(nn.Module):
+    """Multi-head attention with optional FlashAttention backend."""
+
     def __init__(
         self,
         d_model: int,
@@ -71,19 +85,23 @@ class MultiHeadSelfAttention(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
 
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        B, T, D = x.shape
-        q = self.q_proj(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        k = self.k_proj(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        v = self.v_proj(x).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        """Perform attention and merge heads back to model dimension."""
 
-        if mask is not None:
-            attn_mask = mask[:, None, None, :]
-        else:
-            attn_mask = None
+        batch, seq_len, _ = x.shape
+        q = self.q_proj(x).view(batch, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(x).view(batch, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(x).view(batch, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
 
+        attn_mask = mask[:, None, None, :] if mask is not None else None
         q = q * (1.0 / math.sqrt(self.head_dim))
         if self.use_flash and hasattr(F, "scaled_dot_product_attention"):
-            attn = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=self.dropout if self.training else 0.0)
+            attn = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout if self.training else 0.0,
+            )
         else:
             attn_scores = torch.matmul(q, k.transpose(-2, -1))
             if attn_mask is not None:
@@ -92,11 +110,13 @@ class MultiHeadSelfAttention(nn.Module):
             attn_weights = F.dropout(attn_weights, p=self.dropout, training=self.training)
             attn = torch.matmul(attn_weights, v)
 
-        attn = attn.transpose(1, 2).contiguous().view(B, T, D)
+        attn = attn.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
         return self.out_proj(attn)
 
 
 class TransformerEncoderBlock(nn.Module):
+    """Pre-LN Transformer encoder block with residual connections."""
+
     def __init__(
         self,
         d_model: int,
@@ -112,6 +132,8 @@ class TransformerEncoderBlock(nn.Module):
         self.ff = FeedForward(d_model, d_ff, dropout=dropout)
 
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Apply attention then feed-forward network with residual links."""
+
         attn_input = self.ln1(x)
         x = x + self.attn(attn_input, mask=mask)
         ff_input = self.ln2(x)

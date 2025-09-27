@@ -1,13 +1,14 @@
+"""Dataset utilities for lag-specific sequence construction."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from src import config
 from src.data.targets import TargetSpec, load_target_specs
@@ -15,6 +16,8 @@ from src.data.targets import TargetSpec, load_target_specs
 
 @dataclass
 class SequenceConfig:
+    """Configuration container describing how to build a lagged dataset."""
+
     lag: int
     seq_len: int = 192
     horizon: int = 1
@@ -25,38 +28,50 @@ class SequenceConfig:
 
 @dataclass
 class SequenceData:
-    features: np.ndarray  # shape: [T, N, F]
-    labels: np.ndarray    # shape: [T, N]
-    label_mask: np.ndarray  # shape: [T, N]
-    date_index: np.ndarray  # shape: [T]
+    """In-memory representation of feature/label panels for a specific lag."""
+
+    features: np.ndarray  # [T, N, F]
+    labels: np.ndarray  # [T, N]
+    label_mask: np.ndarray  # [T, N]
+    date_index: np.ndarray  # [T]
     target_names: List[str]
     feature_names: List[str]
 
 
 class FeatureNormalizer:
+    """Keeps per-feature mean and std so train/test use identical scaling."""
+
     def __init__(self, eps: float = 1e-6) -> None:
         self.mean: np.ndarray | None = None
         self.std: np.ndarray | None = None
         self.eps = eps
 
     def fit(self, data: np.ndarray, indices: Sequence[int]) -> None:
+        """Estimate normalisation statistics from the training rows."""
+
         subset = data[indices]
         self.mean = subset.mean(axis=0, keepdims=True)
         self.std = subset.std(axis=0, keepdims=True)
         self.std = np.where(self.std < self.eps, 1.0, self.std)
 
     def transform(self, data: np.ndarray) -> np.ndarray:
+        """Apply stored mean/std to normalise features."""
+
         if self.mean is None or self.std is None:
             raise RuntimeError("Normalizer must be fitted before transform")
         return (data - self.mean) / self.std
 
     def to_dict(self) -> Dict[str, np.ndarray]:
+        """Return cached statistics for persistence."""
+
         if self.mean is None or self.std is None:
             raise RuntimeError("Normalizer not fitted")
         return {"mean": self.mean, "std": self.std}
 
 
-class LaggedSequenceDataset(torch.utils.data.Dataset):
+class LaggedSequenceDataset(Dataset):
+    """PyTorch dataset yielding history windows and aligned labels."""
+
     def __init__(
         self,
         data: SequenceData,
@@ -70,9 +85,13 @@ class LaggedSequenceDataset(torch.utils.data.Dataset):
         self.device = device
 
     def __len__(self) -> int:
+        """Return number of valid timesteps."""
+
         return len(self.indices)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        """Return one sample consisting of a history cube and current labels."""
+
         t = int(self.indices[idx])
         start = t - self.seq_len + 1
         features = self.data.features[start : t + 1]
@@ -91,10 +110,14 @@ class LaggedSequenceDataset(torch.utils.data.Dataset):
 
 
 def _select_targets_by_lag(specs: Sequence[TargetSpec], lag: int) -> list[TargetSpec]:
+    """Return the subset of target specifications belonging to a lag bucket."""
+
     return [spec for spec in specs if spec.lag == lag]
 
 
 def _load_feature_panel(path: Path) -> pd.DataFrame:
+    """Load the pre-computed feature panel and validate layout."""
+
     if not path.exists():
         raise FileNotFoundError(f"Feature file not found: {path}")
     frame = pd.read_pickle(path)
@@ -104,6 +127,8 @@ def _load_feature_panel(path: Path) -> pd.DataFrame:
 
 
 def _load_labels(path: Path) -> pd.DataFrame:
+    """Load training labels and index by date."""
+
     if not Path(path).exists():
         raise FileNotFoundError(f"Label file not found: {path}")
     labels = pd.read_csv(path)
@@ -111,6 +136,8 @@ def _load_labels(path: Path) -> pd.DataFrame:
 
 
 def _to_panel(frame: pd.DataFrame, targets: Sequence[str]) -> tuple[np.ndarray, List[str], List[str]]:
+    """Convert multi-index dataframe into dense [T, N, F] tensor."""
+
     feature_names = list(frame.columns.get_level_values(1).unique())
     reordered_columns = pd.MultiIndex.from_product([targets, feature_names])
     subset = frame.reindex(columns=reordered_columns)
@@ -121,8 +148,13 @@ def _to_panel(frame: pd.DataFrame, targets: Sequence[str]) -> tuple[np.ndarray, 
     return arr, list(targets), feature_names
 
 
-def _screen_features(features: np.ndarray, feature_names: List[str], threshold: float = 1e-6) -> tuple[np.ndarray, List[str]]:
-    # features shape [T, N, F]
+def _screen_features(
+    features: np.ndarray,
+    feature_names: List[str],
+    threshold: float = 1e-6,
+) -> tuple[np.ndarray, List[str]]:
+    """Drop features with near-zero variance across all targets."""
+
     variance = features.var(axis=0).mean(axis=0)
     keep_mask = variance > threshold
     if keep_mask.sum() == 0:
@@ -133,6 +165,8 @@ def _screen_features(features: np.ndarray, feature_names: List[str], threshold: 
 
 
 def build_sequence_data(config: SequenceConfig) -> SequenceData:
+    """Assemble feature/label panels for a single lag using provided config."""
+
     specs = load_target_specs()
     lagged_specs = _select_targets_by_lag(specs, config.lag)
     if not lagged_specs:
@@ -176,6 +210,8 @@ def train_valid_split(
     train_end: int,
     min_valid_targets: int,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Return indices for training and validation respecting history length."""
+
     max_index = len(data.date_index)
     valid_mask = data.label_mask.sum(axis=1) >= min_valid_targets
     valid_indices = np.arange(max_index)[valid_mask]
@@ -191,6 +227,8 @@ def create_datasets(
     train_end: int,
     normalizer: FeatureNormalizer | None = None,
 ) -> tuple[LaggedSequenceDataset, LaggedSequenceDataset, FeatureNormalizer, SequenceData]:
+    """Materialise datasets, apply normalisation, and split train/validation."""
+
     data = build_sequence_data(config)
     train_idx, val_idx = train_valid_split(
         data=data,
@@ -218,6 +256,8 @@ def create_dataloaders(
     batch_size: int = 8,
     num_workers: int = 0,
 ) -> tuple[DataLoader, DataLoader]:
+    """Wrap datasets in PyTorch dataloaders for training and validation."""
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,

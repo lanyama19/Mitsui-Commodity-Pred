@@ -1,3 +1,4 @@
+"""Training entrypoint for lag-specific Transformer models."""
 from __future__ import annotations
 
 import json
@@ -22,6 +23,8 @@ from src.training.trainer import Trainer, TrainerConfig
 
 @dataclass
 class ExperimentConfig:
+    """High-level knobs describing a single lag training run."""
+
     lag: int
     seq_len: int = 192
     horizon: int = 1
@@ -39,10 +42,14 @@ class ExperimentConfig:
 
 
 def train_lagged_transformer(exp_cfg: ExperimentConfig) -> Dict[str, Any]:
+    """Train a Transformer for a specific lag configuration and persist artifacts."""
+
+    print(f"[Pipeline] Building datasets for lag={exp_cfg.lag}")
     seq_cfg = SequenceConfig(lag=exp_cfg.lag, seq_len=exp_cfg.seq_len, horizon=exp_cfg.horizon)
     train_dataset, val_dataset, normalizer, data = create_datasets(seq_cfg, train_end=exp_cfg.train_end)
     train_loader, val_loader = create_dataloaders(train_dataset, val_dataset, batch_size=exp_cfg.batch_size)
 
+    print(f"[Pipeline] Initialising model (targets={len(data.target_names)}, features={len(data.feature_names)})")
     model = LaggedTransformer(
         num_targets=len(data.target_names),
         feature_dim=len(data.feature_names),
@@ -63,11 +70,13 @@ def train_lagged_transformer(exp_cfg: ExperimentConfig) -> Dict[str, Any]:
         device=exp_cfg.device,
     )
     trainer = Trainer(model=model, optimizer=optimizer, config=trainer_cfg)
+    print("[Pipeline] Starting training loop")
     history = trainer.fit(train_loader, val_loader)
 
     save_dir = config.OUTPUT_DIR / "models" / f"lag_{exp_cfg.lag}"
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"[Pipeline] Saving artifacts to {save_dir}")
     torch.save(model.state_dict(), save_dir / "model.pt")
     torch.save(optimizer.state_dict(), save_dir / "optimizer.pt")
 
@@ -88,6 +97,7 @@ def train_lagged_transformer(exp_cfg: ExperimentConfig) -> Dict[str, Any]:
     with open(save_dir / "metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 
+    print(f"[Pipeline] Training complete for lag={exp_cfg.lag}")
     return history
 
 

@@ -1,3 +1,4 @@
+"""Loss utilities combining regression, ranking, and gate penalties."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,6 +9,8 @@ import torch.nn.functional as F
 
 @dataclass
 class LossOutput:
+    """Container aggregating the different loss components."""
+
     total: torch.Tensor
     regression: torch.Tensor
     ranking: torch.Tensor
@@ -15,6 +18,8 @@ class LossOutput:
 
 
 def huber_loss(preds: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor, delta: float = 0.2) -> torch.Tensor:
+    """Compute masked Huber loss between predictions and targets."""
+
     diff = preds - targets
     abs_diff = diff.abs()
     quadratic = torch.minimum(abs_diff, torch.tensor(delta, device=preds.device))
@@ -26,6 +31,8 @@ def huber_loss(preds: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor, d
 
 
 def pairwise_rank_loss(scores: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Pairwise logistic ranking loss weighted by absolute target differences."""
+
     batch_losses = []
     for b in range(scores.shape[0]):
         valid = mask[b] > 0.0
@@ -59,6 +66,8 @@ def compute_losses(
     beta: float = 1.0,
     lambda_g: float = 1e-3,
 ) -> LossOutput:
+    """Combine regression, ranking, and gate losses using provided weights."""
+
     reg = huber_loss(preds, targets, mask, delta=huber_delta)
     rank = pairwise_rank_loss(scores, targets, mask)
     gate = lambda_g * gate_penalty
