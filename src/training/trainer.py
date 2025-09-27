@@ -1,12 +1,12 @@
 """Training loop utilities with AMP support and progress reporting."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
 
 from src.training.losses import LossOutput, compute_losses
@@ -45,7 +45,17 @@ class Trainer:
         self.device = torch.device(config.device if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.use_amp = bool(config.use_amp and self.device.type == "cuda")
-        self.scaler = GradScaler(enabled=self.use_amp)
+        if self.use_amp and hasattr(torch, "amp"):
+            self.scaler = torch.amp.GradScaler(device_type="cuda")
+        else:
+            self.scaler = None
+
+    def _amp_context(self):
+        """Return proper autocast context depending on AMP availability."""
+
+        if self.use_amp and hasattr(torch, "amp"):
+            return torch.amp.autocast(device_type="cuda")
+        return nullcontext()
 
     def _move_batch(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Transfer tensors in the batch to the trainer device."""
@@ -59,7 +69,7 @@ class Trainer:
         labels = batch["labels"].float()
         mask = batch["label_mask"].float()
 
-        with autocast(enabled=self.use_amp):
+        with self._amp_context():
             outputs = self.model(features)
             losses = compute_losses(
                 preds=outputs["preds"],
@@ -88,7 +98,7 @@ class Trainer:
                 self.optimizer.zero_grad(set_to_none=True)
                 losses, outputs = self._forward_loss(batch)
 
-                if self.use_amp:
+                if self.scaler is not None:
                     self.scaler.scale(losses.total).backward()
                     if self.config.grad_clip:
                         self.scaler.unscale_(self.optimizer)
