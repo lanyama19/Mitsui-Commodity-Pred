@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
@@ -39,6 +40,15 @@ class ExperimentConfig:
     beta: float = 1.0
     lambda_g: float = 1e-3
     device: str = "cuda"
+    patience: int = 5
+    min_delta: float = 0.0
+
+
+def _prepare_run_directory(lag: int) -> Path:
+    timestamp = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_dir = config.OUTPUT_DIR / "models" / f"lag_{lag}" / timestamp
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
 
 
 def train_lagged_transformer(exp_cfg: ExperimentConfig) -> Dict[str, Any]:
@@ -68,36 +78,40 @@ def train_lagged_transformer(exp_cfg: ExperimentConfig) -> Dict[str, Any]:
         beta=exp_cfg.beta,
         lambda_g=exp_cfg.lambda_g,
         device=exp_cfg.device,
+        patience=exp_cfg.patience,
+        min_delta=exp_cfg.min_delta,
     )
     trainer = Trainer(model=model, optimizer=optimizer, config=trainer_cfg)
     print("[Pipeline] Starting training loop")
-    history = trainer.fit(train_loader, val_loader)
+    history, best_state, summary = trainer.fit(train_loader, val_loader)
 
-    save_dir = config.OUTPUT_DIR / "models" / f"lag_{exp_cfg.lag}"
-    save_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = _prepare_run_directory(exp_cfg.lag)
+    print(f"[Pipeline] Saving artifacts to {run_dir}")
 
-    print(f"[Pipeline] Saving artifacts to {save_dir}")
-    torch.save(model.state_dict(), save_dir / "model.pt")
-    torch.save(optimizer.state_dict(), save_dir / "optimizer.pt")
+    torch.save(model.state_dict(), run_dir / "last_model.pt")
+    torch.save(best_state, run_dir / "best_model.pt")
+    torch.save(optimizer.state_dict(), run_dir / "optimizer.pt")
 
-    with open(save_dir / "trainer_config.json", "w", encoding="utf-8") as f:
+    with open(run_dir / "trainer_config.json", "w", encoding="utf-8") as f:
         json.dump(asdict(trainer_cfg), f, indent=2)
-    with open(save_dir / "experiment.json", "w", encoding="utf-8") as f:
+    with open(run_dir / "experiment.json", "w", encoding="utf-8") as f:
         json.dump(asdict(exp_cfg), f, indent=2)
-    with open(save_dir / "history.json", "w", encoding="utf-8") as f:
+    with open(run_dir / "history.json", "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
+    with open(run_dir / "summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
 
     if normalizer.mean is not None and normalizer.std is not None:
-        np.savez_compressed(save_dir / "normalizer.npz", mean=normalizer.mean, std=normalizer.std)
+        np.savez_compressed(run_dir / "normalizer.npz", mean=normalizer.mean, std=normalizer.std)
 
     metadata = {
         "target_names": data.target_names,
         "feature_names": data.feature_names,
     }
-    with open(save_dir / "metadata.json", "w", encoding="utf-8") as f:
+    with open(run_dir / "metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 
-    print(f"[Pipeline] Training complete for lag={exp_cfg.lag}")
+    print(f"[Pipeline] Training complete for lag={exp_cfg.lag}; best_epoch={summary['best_epoch']} best_metric={summary['best_metric']:.4f}")
     return history
 
 

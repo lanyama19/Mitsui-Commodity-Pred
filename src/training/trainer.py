@@ -1,9 +1,10 @@
-"""Training loop utilities with AMP support and progress reporting."""
+"""Training loop utilities with AMP support, progress reporting, and early stopping."""
 from __future__ import annotations
 
 from contextlib import nullcontext
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -27,10 +28,14 @@ class TrainerConfig:
     lambda_g: float = 1e-3
     use_amp: bool = True
     device: str = "cuda"
+    patience: Optional[int] = None
+    min_delta: float = 0.0
+    metric: str = "val_ic"
+    maximize_metric: bool = True
 
 
 class Trainer:
-    """Handles model training, validation, and metric logging."""
+    """Handles model training, validation, metric logging, and early stopping."""
 
     def __init__(
         self,
@@ -56,17 +61,15 @@ class Trainer:
 
         if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
             try:
-                self.scaler = torch.amp.GradScaler(device_type="cuda")
-                self.autocast = lambda: torch.amp.autocast(device_type="cuda")
+                self.scaler = torch.amp.GradScaler()
+                self.autocast = lambda: torch.amp.autocast("cuda")
                 return
             except TypeError:
                 pass
-        # Fallback to legacy cuda.amp API
         if hasattr(torch.cuda, "amp"):
             self.scaler = torch.cuda.amp.GradScaler()
             self.autocast = torch.cuda.amp.autocast
         else:
-            # As a failsafe, disable AMP
             self.scaler = None
             self.autocast = nullcontext
             self.use_amp = False
@@ -98,10 +101,19 @@ class Trainer:
             )
         return losses, outputs
 
-    def fit(self, train_loader: DataLoader, val_loader: Optional[DataLoader] = None) -> Dict[str, list]:
-        """Train the model for configured epochs and return training history."""
+    def fit(
+        self,
+        train_loader: DataLoader,
+        val_loader: Optional[DataLoader] = None,
+    ) -> Tuple[Dict[str, list], Dict[str, torch.Tensor], Dict[str, float]]:
+        """Train the model for configured epochs and return history and best state."""
 
         history: Dict[str, list] = {"train_loss": [], "val_loss": [], "train_ic": [], "val_ic": []}
+        best_metric: Optional[float] = None
+        best_state: Optional[Dict[str, torch.Tensor]] = None
+        best_epoch = 0
+        epochs_without_improve = 0
+
         for epoch in range(1, self.config.epochs + 1):
             print(f"[Trainer] Epoch {epoch}/{self.config.epochs} -- training phase")
             self.model.train()
@@ -155,9 +167,40 @@ class Trainer:
                 history["val_loss"].append(epoch_val_loss)
                 history["val_ic"].append(epoch_val_ic)
                 print(f"[Trainer] Epoch {epoch} val_loss={epoch_val_loss:.4f} val_ic={epoch_val_ic:.4f}")
+                monitored_metric = epoch_val_ic if self.config.metric == "val_ic" else epoch_val_loss
             else:
                 history["val_loss"].append(0.0)
                 history["val_ic"].append(0.0)
+                monitored_metric = epoch_train_ic if self.config.metric == "val_ic" else epoch_train_loss
+
+            improved = False
+            if best_metric is None:
+                improved = True
+            else:
+                if self.config.maximize_metric:
+                    improved = monitored_metric > best_metric + self.config.min_delta
+                else:
+                    improved = monitored_metric < best_metric - self.config.min_delta
+
+            if improved:
+                best_metric = monitored_metric
+                best_epoch = epoch
+                epochs_without_improve = 0
+                best_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+                print(f"[Trainer] New best metric={best_metric:.4f} at epoch {epoch}")
+            else:
+                epochs_without_improve += 1
+                if self.config.patience and epochs_without_improve >= self.config.patience:
+                    print(f"[Trainer] Early stopping triggered at epoch {epoch}")
+                    break
+
+        if best_state is None:
+            best_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+            best_metric = best_metric if best_metric is not None else monitored_metric
 
         print("[Trainer] Training finished")
-        return history
+        summary = {
+            "best_metric": float(best_metric) if best_metric is not None else float("nan"),
+            "best_epoch": int(best_epoch),
+        }
+        return history, best_state, summary
