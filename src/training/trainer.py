@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
 from src.training.losses import LossOutput, compute_losses
 from src.training.metrics import spearman_correlation
 
-@dataclass
+
+@dataclass
 class TrainerConfig:
     """Configuration for the generic trainer."""
 
@@ -45,17 +46,30 @@ class Trainer:
         self.device = torch.device(config.device if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.use_amp = bool(config.use_amp and self.device.type == "cuda")
-        if self.use_amp and hasattr(torch, "amp"):
-            self.scaler = torch.amp.GradScaler(device_type="cuda")
+        self.scaler = None
+        self.autocast: Callable[[], nullcontext | torch.autocast_mode.autocast] = nullcontext
+        if self.use_amp:
+            self._init_amp()
+
+    def _init_amp(self) -> None:
+        """Initialise AMP helpers with backward-compatible fallbacks."""
+
+        if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
+            try:
+                self.scaler = torch.amp.GradScaler(device_type="cuda")
+                self.autocast = lambda: torch.amp.autocast(device_type="cuda")
+                return
+            except TypeError:
+                pass
+        # Fallback to legacy cuda.amp API
+        if hasattr(torch.cuda, "amp"):
+            self.scaler = torch.cuda.amp.GradScaler()
+            self.autocast = torch.cuda.amp.autocast
         else:
+            # As a failsafe, disable AMP
             self.scaler = None
-
-    def _amp_context(self):
-        """Return proper autocast context depending on AMP availability."""
-
-        if self.use_amp and hasattr(torch, "amp"):
-            return torch.amp.autocast(device_type="cuda")
-        return nullcontext()
+            self.autocast = nullcontext
+            self.use_amp = False
 
     def _move_batch(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Transfer tensors in the batch to the trainer device."""
@@ -69,7 +83,7 @@ class Trainer:
         labels = batch["labels"].float()
         mask = batch["label_mask"].float()
 
-        with self._amp_context():
+        with self.autocast():
             outputs = self.model(features)
             losses = compute_losses(
                 preds=outputs["preds"],
