@@ -24,6 +24,7 @@ class LaggedTransformer(nn.Module):
         ff_multiplier: int = 4,
         dropout: float = 0.1,
         use_flash_attention: bool = True,
+        feature_dropout: float = 0.1,
     ) -> None:
         super().__init__()
         self.num_targets = num_targets
@@ -32,6 +33,7 @@ class LaggedTransformer(nn.Module):
         self.horizon = horizon
         self.d_model = d_model
 
+        self.feature_dropout = nn.Dropout(feature_dropout) if feature_dropout > 0 else nn.Identity()
         self.gate = FeatureGate(feature_dim)
         self.input_proj = nn.Linear(feature_dim, d_model)
         self.input_dropout = nn.Dropout(dropout)
@@ -66,6 +68,7 @@ class LaggedTransformer(nn.Module):
             raise ValueError("Input shape mismatch with model configuration")
 
         x_flat = x.view(batch * num_targets, seq_len, feature_dim)
+        x_flat = self.feature_dropout(x_flat)
         gated, _ = self.gate(x_flat)
         z = self.input_proj(gated)
         z = self.input_dropout(z)

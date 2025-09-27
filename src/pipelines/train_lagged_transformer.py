@@ -38,10 +38,11 @@ class ExperimentConfig:
     huber_delta: float = 0.2
     alpha: float = 0.3
     beta: float = 1.0
-    lambda_g: float = 1e-3
+    lambda_g: float = 5e-3
     device: str = "cuda"
     patience: int = 5
     min_delta: float = 0.0
+    feature_dropout: float = 0.1
 
 
 def _prepare_run_directory(lag: int) -> Path:
@@ -65,6 +66,7 @@ def train_lagged_transformer(exp_cfg: ExperimentConfig) -> Dict[str, Any]:
         feature_dim=len(data.feature_names),
         seq_len=exp_cfg.seq_len,
         horizon=exp_cfg.horizon,
+        feature_dropout=exp_cfg.feature_dropout,
     )
 
     optimizer = AdamW(model.parameters(), lr=exp_cfg.lr, weight_decay=exp_cfg.weight_decay)
