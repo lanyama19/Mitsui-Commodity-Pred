@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 
+import numpy as np
 import pandas as pd
 
 from src.data.loading import load_target_pairs
@@ -67,3 +68,34 @@ def targets_by_lag() -> dict[int, list[TargetSpec]]:
 
 def target_names() -> list[str]:
     return [spec.name for spec in load_target_specs()]
+
+
+def build_target_frame(
+    prices: pd.DataFrame,
+    specs: Sequence[TargetSpec] | None = None,
+    log_scale: bool = True,
+    eps: float = 1e-8,
+    index_col: str | None = "date_id",
+) -> pd.DataFrame:
+    specs = list(specs or load_target_specs())
+    if index_col and index_col in prices.columns:
+        price_frame = prices.set_index(index_col)
+    else:
+        price_frame = prices.copy()
+        price_frame.index = prices.index
+    target_data = {}
+    for spec in specs:
+        series = None
+        for asset, weight in spec.terms:
+            values = price_frame[asset].to_numpy(dtype=float, copy=False)
+            if log_scale:
+                values = np.log(np.clip(values, eps, None))
+            term = weight * values
+            series = term if series is None else series + term
+        target_data[spec.name] = series
+    target_frame = pd.DataFrame(target_data, index=price_frame.index)
+    return target_frame
+
+
+def compute_target_returns(target_frame: pd.DataFrame, periods: int = 1) -> pd.DataFrame:
+    return target_frame.diff(periods=periods)
