@@ -22,41 +22,55 @@ Running `build_and_save_features()` writes the following under `artifacts/featur
 - `all.pkl`: concatenation of the three feature groups.
 
 ## Quick Start
+
+### 1. Create and activate a virtual environment
 ```powershell
-# Activate environment
-d:\py\genAI\venv\Scripts\Activate.ps1
-
-# Install dependencies (first run only)
-pip install -r requirements.txt
-
-# Generate cleaned price panels
-python - <<'PY'
-from src.data.pipeline import build_all_cleaned
-build_all_cleaned(window=5)
-PY
-
-# Generate feature matrices
-python - <<'PY'
-from src.features.pipeline import build_and_save_features
-build_and_save_features()
-PY
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
+_On macOS/Linux:_
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install dependencies (first run only)
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Generate cleaned price panels
+```bash
+python -c "from src.data.pipeline import build_all_cleaned; build_all_cleaned(window=5)"
+```
+
+### 4. Build the feature library
+```bash
+python -c "from src.features.pipeline import build_and_save_features; build_and_save_features()"
+```
+
+## Feature EDA
+Use `scripts/feature_eda.py` to inspect feature panels for a given lag.
+```bash
+python scripts/feature_eda.py --lag 1 --panel all --preview-cols 8 --head 5
+```
+Add `--summary-csv my_summary` to write per-feature statistics to `artifacts/eda/my_summary.csv`.
 
 ## Code Structure
 ```
 src/
-├── config.py              # Paths and shared configuration
-├── data/
-│   ├── cleaning.py        # Missing-value extrapolation and helpers
-│   ├── loading.py         # CSV loaders
-│   ├── pipeline.py        # Cleaning pipeline entrypoints
-│   └── targets.py         # Target specification parsing & construction
-└── features/
-    ├── technical.py       # TA-Lib feature block
-    ├── factors.py         # Financial factor block
-    ├── pca.py             # PCA latent factors + artifacts
-    ├── gp.py              # Genetic programming features
-    └── pipeline.py        # Feature assembly & persistence
+|-- config.py              # Paths and shared configuration
+|-- data/
+|   |-- cleaning.py        # Missing-value extrapolation and helpers
+|   |-- loading.py         # CSV loaders
+|   |-- pipeline.py        # Cleaning pipeline entrypoints
+|   \-- targets.py         # Target specification parsing & construction
+\-- features/
+    |-- technical.py       # TA-Lib feature block
+    |-- factors.py         # Financial factor block
+    |-- pca.py             # PCA latent factors + artifacts
+    |-- gp.py              # Genetic programming features
+    \-- pipeline.py        # Feature assembly & persistence
 ```
 
 ---

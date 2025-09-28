@@ -245,8 +245,8 @@ def _compute_ou_features(values: np.ndarray, windows: tuple[int, ...]) -> Dict[s
             denom = 1 - b
             mean_mask = (np.abs(denom) > EPS) & np.isfinite(a)
             tmp_mean[mean_mask] = np.divide(a[mean_mask], denom[mean_mask])
-            speed[window:] = tmp_speed
-            long_mean[window:] = tmp_mean
+            speed[window-1:] = tmp_speed
+            long_mean[window-1:] = tmp_mean
         results[f"ou_speed_{window}"] = speed
         results[f"ou_mean_{window}"] = long_mean
     return results

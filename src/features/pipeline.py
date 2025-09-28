@@ -35,6 +35,20 @@ FEATURE_DIR = config.OUTPUT_DIR / "features"
 FEATURE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+
+
+def _ensure_unique_columns(frame: pd.DataFrame, name: str) -> pd.DataFrame:
+    if frame.columns.duplicated().any():
+        frame = frame.loc[:, ~frame.columns.duplicated()]
+    return frame
+
+def _ensure_unique_index(frame: pd.DataFrame, name: str) -> pd.DataFrame:
+    if frame.index.duplicated().any():
+        frame = frame.loc[~frame.index.duplicated(keep="last")]
+    return frame
+
+
+
 def build_target_price_frame() -> Tuple[pd.DataFrame, pd.DataFrame, list[TargetSpec]]:
     """Return target price panel, component log-price panel, and target specs."""
 
@@ -49,9 +63,12 @@ def build_target_price_frame() -> Tuple[pd.DataFrame, pd.DataFrame, list[TargetS
 
     price_subset = clean_all[required_columns].copy()
     price_subset = price_subset.ffill().bfill()
+    price_subset = price_subset.drop_duplicates(subset="date_id", keep="last")
 
     target_frame = build_target_frame(price_subset, specs=specs, index_col="date_id")
+    target_frame = _ensure_unique_index(target_frame, "target_prices")
     log_prices = np.log(price_subset.set_index("date_id").clip(lower=1e-8))
+    log_prices = _ensure_unique_index(log_prices, "component_log_prices")
     return target_frame, log_prices, specs
 
 
@@ -102,6 +119,11 @@ def build_full_feature_set(
     target_frame, log_price_frame, specs = build_target_price_frame()
     print('[Features] Constructing base feature set')
     base_features, technical_features = build_base_features(target_frame, log_price_frame, specs)
+    base_features = _ensure_unique_columns(base_features, "base")
+    base_features = _ensure_unique_index(base_features, "base")
+    technical_features = _ensure_unique_columns(technical_features, "technical")
+    technical_features = _ensure_unique_index(technical_features, "technical")
+
 
     train_labels = load_train_labels()
     train_mask = _build_train_mask(target_frame, train_labels)
@@ -112,6 +134,9 @@ def build_full_feature_set(
         train_mask=train_mask,
         n_components=n_pca_components,
     )
+    pca_features = _ensure_unique_columns(pca_features, "pca")
+    pca_features = _ensure_unique_index(pca_features, "pca")
+
 
     print('[Features] Fitting GP symbolic transformer')
     gp_features, gp_artifacts = generate_gp_features(
@@ -121,10 +146,16 @@ def build_full_feature_set(
         n_components=n_gp_components,
         sample_size=sample_size,
     )
+    gp_features = _ensure_unique_columns(gp_features, "gp")
+    gp_features = _ensure_unique_index(gp_features, "gp")
+
 
     print('[Features] Combining all feature panels')
     all_features = pd.concat([base_features, pca_features, gp_features], axis=1)
     all_features = all_features.sort_index(axis=1)
+    all_features = _ensure_unique_columns(all_features, "all")
+    all_features = _ensure_unique_index(all_features, "all")
+
 
     train_mask_bool = train_mask.astype(bool)
     outputs: Dict[str, pd.DataFrame] = {

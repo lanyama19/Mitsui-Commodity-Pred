@@ -32,6 +32,7 @@ def _ensure_validate_data(model: SymbolicTransformer) -> None:
     model._more_tags = MethodType(_more_tags, model)
 
 
+
 def generate_gp_features(
     base_features: pd.DataFrame,
     train_mask: pd.Series,
@@ -43,15 +44,23 @@ def generate_gp_features(
     stacked_features = base_features.stack(level=0, future_stack=True)
     stacked_features.index.set_names(["date_id", "target"], inplace=True)
     stacked_features = stacked_features.sort_index()
+    if not stacked_features.index.is_unique:
+        stacked_features = stacked_features.loc[~stacked_features.index.duplicated(keep="last")]
 
     labels = train_labels.set_index("date_id")
     target_series = labels.stack(future_stack=True).rename("label")
     target_series.index.set_names(["date_id", "target"], inplace=True)
     target_series = target_series.sort_index()
+    if not target_series.index.is_unique:
+        target_series = target_series.loc[~target_series.index.duplicated(keep="last")]
 
     train_idx = stacked_features.index.intersection(target_series.index)
+    if isinstance(train_idx, pd.MultiIndex):
+        train_idx = train_idx.unique()
     train_dates = pd.Index(train_idx.get_level_values("date_id"))
-    mask_series = train_mask.groupby(level=0).max() if train_mask.index.has_duplicates else train_mask
+    mask_series = (
+        train_mask.groupby(level=0).max() if train_mask.index.has_duplicates else train_mask
+    )
     train_filter = train_dates.map(mask_series).fillna(False).to_numpy(dtype=bool)
     train_idx = train_idx[train_filter]
 
@@ -60,14 +69,16 @@ def generate_gp_features(
     valid_mask = ~y_train.isna()
     X_train = X_train.loc[valid_mask]
     y_train = y_train.loc[valid_mask].to_numpy()
+    X_array = X_train.to_numpy(dtype=float)
+    n_obs = len(y_train)
 
-    if sample_size and len(X_train) > sample_size:
+    if sample_size and n_obs > sample_size:
         rng = np.random.default_rng(random_state)
-        sample_positions = rng.choice(len(X_train), size=sample_size, replace=False)
-        X_sample = X_train.to_numpy(dtype=float)[sample_positions]
+        sample_positions = rng.choice(n_obs, size=sample_size, replace=False)
+        X_sample = X_array[sample_positions]
         y_sample = y_train[sample_positions]
     else:
-        X_sample = X_train.to_numpy(dtype=float)
+        X_sample = X_array
         y_sample = y_train
 
     feature_names = list(stacked_features.columns)
@@ -90,8 +101,12 @@ def generate_gp_features(
     transformed = gp.transform(stacked_features.to_numpy(dtype=float))
     gp_columns = [f"gp_{i+1}" for i in range(n_components)]
     gp_df = pd.DataFrame(transformed, index=stacked_features.index, columns=gp_columns)
+    if not gp_df.index.is_unique:
+        gp_df = gp_df.loc[~gp_df.index.duplicated(keep="last")]
     gp_df = gp_df.unstack(level="target")
     gp_df = gp_df.swaplevel(axis=1).sort_index(axis=1)
+    if gp_df.columns.duplicated().any():
+        gp_df = gp_df.loc[:, ~gp_df.columns.duplicated()]
 
     artifacts = GPArtifacts(model=gp, feature_names=feature_names)
     return gp_df, artifacts
