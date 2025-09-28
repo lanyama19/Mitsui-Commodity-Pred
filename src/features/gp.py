@@ -50,8 +50,9 @@ def generate_gp_features(
     target_series = target_series.sort_index()
 
     train_idx = stacked_features.index.intersection(target_series.index)
-    train_dates = train_idx.get_level_values("date_id")
-    train_filter = train_mask.loc[train_dates].to_numpy()
+    train_dates = pd.Index(train_idx.get_level_values("date_id"))
+    mask_series = train_mask.groupby(level=0).max() if train_mask.index.has_duplicates else train_mask
+    train_filter = train_dates.map(mask_series).fillna(False).to_numpy(dtype=bool)
     train_idx = train_idx[train_filter]
 
     X_train = stacked_features.loc[train_idx]

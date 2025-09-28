@@ -23,8 +23,11 @@ def compute_pca_features(
     random_state: int = 42,
 ) -> Tuple[pd.DataFrame, PCAArtifacts]:
     returns = target_frame.diff().dropna()
-    aligned_mask = train_mask.loc[returns.index]
+    mask_series = train_mask.groupby(level=0).max() if train_mask.index.has_duplicates else train_mask
+    aligned_mask = returns.index.to_series().map(mask_series).fillna(False).astype(bool)
     train_returns = returns.loc[aligned_mask]
+    if train_returns.empty:
+        raise ValueError("No training samples available for PCA after applying train mask")
 
     scaler = StandardScaler(with_mean=True, with_std=True)
     scaled_train = scaler.fit_transform(train_returns)
