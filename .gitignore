@@ -209,3 +209,8 @@ __marimo__/
 multi_asset_transformer.md
 initial_prompt.txt
 artifacts/
+LightGBM/
+target_pairs.csv
+train.csv
+test.csv
+train_labels.csv

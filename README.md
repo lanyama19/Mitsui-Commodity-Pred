@@ -56,6 +56,13 @@ python scripts/feature_eda.py --lag 1 --panel all --preview-cols 8 --head 5
 ```
 Add `--summary-csv my_summary` to write per-feature statistics to `artifacts/eda/my_summary.csv`.
 
+## Baseline Models
+- **LightGBM tabular baseline** (`src/pipelines/train_lightgbm.py`): trains per-target gradient boosting models using the engineered features, logs train/validation RMSE + IC/IR, and saves artifacts under `artifacts/lightgbm/`.
+  - Quick CPU run: `python scripts/run_lightgbm_baseline.py --lag 1 --run-name cpu_demo`.
+  - GPU run (WSL/CUDA): `python scripts/run_lightgbm_baseline.py --lag 1 --run-name gpu_demo --device gpu --gpu-platform-id 0 --gpu-device-id 0`.
+  - Parallel tuning: `python scripts/grid_search_lightgbm.py --lag 1 --device gpu --n-samples 400 --max-train-gap 0.2 --output artifacts/grid_lag1_gpu.csv` (GPU mode auto-switches to single-worker threading).
+- **Transformer (WIP)**: sequence model with gating regularisation and early stopping, trained via `src/pipelines/train_lagged_transformer.py`.
+
 ## Code Structure
 ```
 src/
