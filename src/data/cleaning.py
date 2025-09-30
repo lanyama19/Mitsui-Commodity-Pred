@@ -67,3 +67,10 @@ def normalize_prices(df: pd.DataFrame, price_columns: Iterable[str], reference: 
             continue
         cleaned[column] = (col - mu) / sigma
     return cleaned
+
+
+def build_all_cleaned(window: int = 5) -> dict[str, pd.DataFrame]:
+    """Populate cleaned price tables; thin wrapper around pipeline helper."""
+    from . import pipeline as _pipeline
+
+    return _pipeline.build_all_cleaned(window=window)
