@@ -49,6 +49,12 @@ python -c "from src.data.pipeline import build_all_cleaned; build_all_cleaned(wi
 python -c "from src.features.pipeline import build_and_save_features; build_and_save_features()"
 ```
 
+### 4b. Build the NAV-based feature library (v2)
+```bash
+python scripts/build_features_v2.py --save
+```
+This variant keeps the original factor/statistical blocks, but recomputes TA-Lib indicators on synthetic NAV curves (see `src/features/technical_v2.py`) and reuses them for GP feature discovery.
+
 ## Feature EDA
 Use `scripts/feature_eda.py` to inspect feature panels for a given lag.
 ```bash
