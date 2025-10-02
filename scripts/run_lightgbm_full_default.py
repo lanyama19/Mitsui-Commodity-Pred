@@ -1,4 +1,4 @@
-"""Convenience launcher for full LightGBM training with default Kaggle weights."""
+"""Convenience launcher for full LightGBM training without recency weighting."""
 from __future__ import annotations
 
 import subprocess
@@ -22,13 +22,7 @@ def main() -> None:
         "--run-prefix",
         "tunedfull",
         "--weight-scheme",
-        "recency_exp",
-        "--weight-decay",
-        "3.0",
-        "--weight-floor",
-        "0.5",
-        "--weight-cap",
-        "10",
+        "none",
         "--lags",
         "1",
         "2",
