@@ -45,6 +45,8 @@ class LightGBMConfig:
     subsample_for_bin: int = 200000
     seed: int = 2024
     feature_panel: str = "all_train.pkl"
+    feature_store: str = "features"
+    artifact_root: str = "lightgbm"
     run_name: str | None = None
     min_variance: float = 1e-9
     device: str | None = None
@@ -52,6 +54,11 @@ class LightGBMConfig:
     gpu_device_id: int | None = None
     max_bin: int | None = None
     bin_construct_sample_cnt: int | None = None
+    weight_scheme: str = "none"
+    weight_decay_rate: float = 0.0
+    weight_floor: float = 0.1
+    weight_cap: float | None = None
+    weight_normalize: bool = True
 
 
 def _prepare_gpu_env(cfg: LightGBMConfig) -> None:
@@ -67,8 +74,8 @@ def _targets_for_lag(specs: Iterable[TargetSpec], lag: int) -> List[str]:
     return [spec.name for spec in specs if spec.lag == lag]
 
 
-def _load_feature_panel(panel_name: str) -> pd.DataFrame:
-    path = config.OUTPUT_DIR / "features" / panel_name
+def _load_feature_panel(panel_name: str, store: str = "features") -> pd.DataFrame:
+    path = config.OUTPUT_DIR / store / panel_name
     if not path.exists():
         raise FileNotFoundError(f"Feature panel not found: {path}")
     frame = pd.read_pickle(path)
@@ -77,9 +84,10 @@ def _load_feature_panel(panel_name: str) -> pd.DataFrame:
     return frame
 
 
-def _prepare_run_directory(lag: int, run_name: str | None) -> Path:
+def _prepare_run_directory(lag: int, run_name: str | None, artifact_root: str = "lightgbm") -> Path:
     timestamp = run_name or datetime.now().strftime("run_%Y%m%d_%H%M%S")
-    run_dir = config.OUTPUT_DIR / "lightgbm" / f"lag_{lag}" / timestamp
+    root = config.OUTPUT_DIR / artifact_root
+    run_dir = root / f"lag_{lag}" / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "models").mkdir(exist_ok=True)
     (run_dir / "preprocessing").mkdir(exist_ok=True)
@@ -129,6 +137,52 @@ def _drop_low_variance(features: pd.DataFrame, threshold: float) -> Tuple[pd.Dat
     return filtered, filtered.columns.tolist()
 
 
+def _compute_time_distance(index: pd.Index) -> np.ndarray:
+    if index.empty:
+        return np.empty(0, dtype=float)
+    if np.issubdtype(index.dtype, np.number):
+        values = index.to_numpy(dtype=float, copy=False)
+    else:
+        values = np.arange(index.size, dtype=float)
+    origin = np.nanmin(values)
+    if not np.isfinite(origin):
+        return np.empty(0, dtype=float)
+    return values - origin
+
+
+def _compute_sample_weights(index: pd.Index, cfg: LightGBMConfig) -> np.ndarray | None:
+    scheme = (cfg.weight_scheme or "none").lower()
+    if scheme in {"none", "off"}:
+        return None
+    distances = _compute_time_distance(index)
+    if distances.size == 0:
+        return None
+    span = float(np.max(distances)) if distances.size else 0.0
+    if span > 0:
+        rel = distances / span
+    else:
+        rel = distances
+    decay = cfg.weight_decay_rate
+    if scheme in {"recency_exp", "exp"}:
+        if decay <= 0:
+            return None
+        weights = np.exp(rel * decay)
+    elif scheme in {"recency_linear", "linear"}:
+        weights = 1.0 + rel * decay
+    else:
+        raise ValueError(f"Unsupported weight_scheme: {cfg.weight_scheme}")
+    if cfg.weight_cap is not None:
+        weights = np.minimum(weights, cfg.weight_cap)
+    if cfg.weight_floor is not None:
+        weights = np.maximum(weights, cfg.weight_floor)
+    if cfg.weight_normalize:
+        mean = np.mean(weights)
+        if mean > 0:
+            weights = weights / mean
+    weights = weights.astype(np.float32, copy=False)
+    return weights
+
+
 def _train_target(
     target: str,
     features_panel: pd.DataFrame,
@@ -174,6 +228,7 @@ def _train_target(
 
     train_array = train_features.to_numpy(dtype=np.float32, copy=False)
     train_target = train_labels.to_numpy(dtype=np.float32, copy=False)
+    train_weights = _compute_sample_weights(train_features.index, cfg)
 
     params = {
         "objective": "regression",
@@ -209,6 +264,7 @@ def _train_target(
     train_dataset = lgb.Dataset(
         train_array,
         label=train_target,
+        weight=train_weights,
         feature_name=list(feature_names),
         free_raw_data=False,
     )
@@ -268,6 +324,10 @@ def _train_target(
         "val_rmse": val_rmse,
         "best_iteration": int(best_iteration),
     }
+    if train_weights is not None and train_weights.size > 0:
+        metrics["train_weight_mean"] = float(np.mean(train_weights))
+        metrics["train_weight_min"] = float(np.min(train_weights))
+        metrics["train_weight_max"] = float(np.max(train_weights))
 
     preprocessing: Dict[str, Any] = {
         "feature_names": feature_names,
@@ -303,7 +363,7 @@ def train_lightgbm(
     if not target_names:
         raise ValueError(f"No targets registered for lag={cfg.lag}")
 
-    feature_panel = _load_feature_panel(cfg.feature_panel)
+    feature_panel = _load_feature_panel(cfg.feature_panel, cfg.feature_store)
     label_frame = load_train_labels()
     if "date_id" not in label_frame.columns:
         raise KeyError("Expected `date_id` column in training labels")
@@ -317,7 +377,7 @@ def train_lightgbm(
 
     run_dir: Path | None = None
     if save_artifacts:
-        run_dir = _prepare_run_directory(cfg.lag, cfg.run_name)
+        run_dir = _prepare_run_directory(cfg.lag, cfg.run_name, cfg.artifact_root)
         if verbose:
             print(f"[LightGBM] Saving run artifacts to {run_dir}")
     else:
