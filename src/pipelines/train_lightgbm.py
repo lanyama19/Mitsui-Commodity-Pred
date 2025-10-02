@@ -38,6 +38,7 @@ class LightGBMConfig:
     bagging_fraction: float = 0.8
     bagging_freq: int = 5
     min_data_in_leaf: int = 20
+    min_gain_to_split: float = 0.0
     lambda_l1: float = 0.0
     lambda_l2: float = 0.0
     early_stopping_rounds: int = 50
@@ -239,6 +240,7 @@ def _train_target(
         "bagging_fraction": cfg.bagging_fraction,
         "bagging_freq": cfg.bagging_freq,
         "min_data_in_leaf": cfg.min_data_in_leaf,
+        "min_gain_to_split": cfg.min_gain_to_split,
         "lambda_l1": cfg.lambda_l1,
         "lambda_l2": cfg.lambda_l2,
         "max_depth": cfg.max_depth,
@@ -508,6 +510,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bagging-freq", type=int, default=5, help="Row subsampling frequency")
     parser.add_argument("--lambda-l1", type=float, default=0.0, help="L1 regularisation strength")
     parser.add_argument("--lambda-l2", type=float, default=0.0, help="L2 regularisation strength")
+    parser.add_argument("--min-gain-to-split", type=float, default=0.0, help="Minimum gain required for a split")
     parser.add_argument("--feature-panel", type=str, default="all_train.pkl", help="Feature pickle filename under artifacts/features")
     parser.add_argument("--run-name", type=str, default=None, help="Optional custom run directory name")
     parser.add_argument("--min-variance", type=float, default=1e-9, help="Threshold for dropping near-constant features")
@@ -533,6 +536,7 @@ def main() -> None:
         bagging_fraction=args.bagging_fraction,
         bagging_freq=args.bagging_freq,
         min_data_in_leaf=args.min_data_in_leaf,
+        min_gain_to_split=args.min_gain_to_split,
         lambda_l1=args.lambda_l1,
         lambda_l2=args.lambda_l2,
         feature_panel=args.feature_panel,
