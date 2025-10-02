@@ -106,7 +106,6 @@ def _build_config(
         bagging_fraction=float(params.get("bagging_fraction", 0.6)),
         bagging_freq=args.bagging_freq,
         min_data_in_leaf=int(params.get("min_data_in_leaf", 50)),
-        min_gain_to_split=float(params.get("min_gain_to_split", 0.0)),
         lambda_l1=float(params.get("lambda_l1", 0.0)),
         lambda_l2=float(params.get("lambda_l2", 0.0)),
         early_stopping_rounds=0,
