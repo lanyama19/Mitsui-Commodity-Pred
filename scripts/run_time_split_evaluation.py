@@ -41,7 +41,7 @@ ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
 PARAM_CONFIG = Path("configs/lightgbm_lag_params.json")
 FEATURE_VERSION = "v2"
 WEIGHT_SCHEME = "recency_exp"
-WEIGHT_DECAY = "1.8"
+WEIGHT_DECAY = "1.2"
 WEIGHT_FLOOR = "0.5"
 WEIGHT_CAP = "10"
 BAGGING_FREQ = "5"

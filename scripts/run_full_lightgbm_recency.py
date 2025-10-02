@@ -24,7 +24,7 @@ def main() -> None:
         "--weight-scheme",
         "recency_exp",
         "--weight-decay",
-        "1.8",
+        "1.2",
         "--weight-floor",
         "0.5",
         "--weight-cap",
