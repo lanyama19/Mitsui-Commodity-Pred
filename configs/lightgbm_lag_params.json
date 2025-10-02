@@ -1,6 +1,5 @@
 {
   "lag1": {
-    "train_end": 1800,
     "num_boost_round": 200,
     "learning_rate": 0.03,
     "num_leaves": 48,
@@ -8,10 +7,10 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.001,
-    "lambda_l2": 0.1
+    "lambda_l2": 0.1,
+    "train_end": 1800
   },
   "lag2": {
-    "train_end": 1800,
     "num_boost_round": 280,
     "learning_rate": 0.03,
     "num_leaves": 31,
@@ -19,10 +18,10 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.01,
-    "lambda_l2": 0.01
+    "lambda_l2": 0.01,
+    "train_end": 1800
   },
   "lag3": {
-    "train_end": 1800,
     "num_boost_round": 200,
     "learning_rate": 0.03,
     "num_leaves": 48,
@@ -30,10 +29,10 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.001,
-    "lambda_l2": 0.1
+    "lambda_l2": 0.1,
+    "train_end": 1800
   },
   "lag4": {
-    "train_end": 1800,
     "num_boost_round": 280,
     "learning_rate": 0.03,
     "num_leaves": 31,
@@ -41,6 +40,7 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.01,
-    "lambda_l2": 0.01
+    "lambda_l2": 0.01,
+    "train_end": 1800
   }
 }
