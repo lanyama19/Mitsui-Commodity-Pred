@@ -7,8 +7,9 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.001,
-    "lambda_l2": 0.1,
-    "train_end": 1800
+    "lambda_l2": 0.30000000000000004,
+    "train_end": 1800,
+    "min_gain_to_split": 0.01
   },
   "lag2": {
     "num_boost_round": 280,
@@ -18,8 +19,9 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.01,
-    "lambda_l2": 0.01,
-    "train_end": 1800
+    "lambda_l2": 0.03,
+    "train_end": 1800,
+    "min_gain_to_split": 0.01
   },
   "lag3": {
     "num_boost_round": 200,
@@ -29,8 +31,9 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.001,
-    "lambda_l2": 0.1,
-    "train_end": 1800
+    "lambda_l2": 0.30000000000000004,
+    "train_end": 1800,
+    "min_gain_to_split": 0.01
   },
   "lag4": {
     "num_boost_round": 280,
@@ -40,7 +43,8 @@
     "bagging_fraction": 0.6,
     "min_data_in_leaf": 80,
     "lambda_l1": 0.01,
-    "lambda_l2": 0.01,
-    "train_end": 1800
+    "lambda_l2": 0.03,
+    "train_end": 1800,
+    "min_gain_to_split": 0.01
   }
 }
