@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from src.features.pipeline_v2 import (  # noqa: E402
     build_full_feature_set_v2,
+    save_feature_artifacts,
     save_features_v2,
 )
 
@@ -57,7 +58,8 @@ def main() -> None:
         print(f"[Features-v2] PCA loadings shape: {artifacts.pca.loadings.shape}")
     if args.save:
         save_features_v2(feature_frames)
-        print('[Features-v2] Saved feature panels to features_v2 directory')
+        save_feature_artifacts(artifacts)
+        print('[Features-v2] Saved feature panels and artifacts to features_v2 directory')
 
 
 if __name__ == "__main__":

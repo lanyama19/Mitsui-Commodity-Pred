@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pickle
+from pathlib import Path
 from typing import Dict, Tuple
 
 import pandas as pd
@@ -29,6 +31,7 @@ from src.features.technical_v2 import compute_continuous_technical_features
 
 
 FEATURE_V2_DIR = config.OUTPUT_DIR / "features_v2"
+ARTIFACT_PATH = FEATURE_V2_DIR / "feature_artifacts.pkl"
 FEATURE_V2_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -157,17 +160,25 @@ def save_features_v2(feature_frames: Dict[str, pd.DataFrame]) -> None:
         frame.to_pickle(path)
 
 
+def save_feature_artifacts(artifacts: FeatureArtifacts, path: Path = ARTIFACT_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as fh:
+        pickle.dump(artifacts, fh)
+
+
+def load_feature_artifacts(path: Path = ARTIFACT_PATH) -> FeatureArtifacts:
+    with path.open("rb") as fh:
+        return pickle.load(fh)
+
 
 def build_and_save_features_v2() -> FeatureArtifacts:
     print('[Features-v2] Starting NAV-based feature rebuild')
     feature_frames, artifacts = build_full_feature_set_v2()
     print('[Features-v2] Saving NAV feature artifacts to disk')
     save_features_v2(feature_frames)
+    save_feature_artifacts(artifacts)
     print('[Features-v2] Feature generation v2 complete')
     return artifacts
-
-
-
 
 
 
